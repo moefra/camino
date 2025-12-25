@@ -54,6 +54,13 @@ use std::{
     sync::Arc,
 };
 
+use rkyv::{
+    Archive, Deserialize, DeserializeUnsized, Place, Serialize, SerializeUnsized,
+    rancor::{Fallible, Source},
+    string::{ArchivedString, StringResolver},
+};
+use ts_rs::TS;
+
 #[cfg(feature = "proptest1")]
 mod proptest_impls;
 #[cfg(feature = "serde1")]
@@ -107,9 +114,40 @@ mod tests;
 ///
 /// Which method works best depends on what kind of situation you're in.
 // NB: Internal PathBuf must only contain utf8 data
-#[derive(Clone, Default)]
+#[derive(Clone, Default, TS)]
+#[ts(export, export_to = "utf8_path_buf.d.ts", type = "string")]
 #[repr(transparent)]
 pub struct Utf8PathBuf(PathBuf);
+
+impl Archive for Utf8PathBuf {
+    type Archived = ArchivedString;
+    type Resolver = StringResolver;
+
+    #[inline]
+    fn resolve(&self, resolver: Self::Resolver, out: Place<Self::Archived>) {
+        ArchivedString::resolve_from_str(self.as_str(), resolver, out);
+    }
+}
+impl<S: Fallible + ?Sized> Serialize<S> for Utf8PathBuf
+where
+    S::Error: Source,
+    str: SerializeUnsized<S>,
+{
+    fn serialize(
+        &self,
+        serializer: &mut S,
+    ) -> Result<<Utf8PathBuf as Archive>::Resolver, S::Error> {
+        ArchivedString::serialize_from_str(self.as_str(), serializer)
+    }
+}
+impl<D: Fallible + ?Sized> Deserialize<Utf8PathBuf, D> for ArchivedString
+where
+    str: DeserializeUnsized<str, D>,
+{
+    fn deserialize(&self, _: &mut D) -> Result<Utf8PathBuf, D::Error> {
+        Ok(Utf8PathBuf::from(self.as_str()))
+    }
+}
 
 impl Utf8PathBuf {
     /// Allocates an empty [`Utf8PathBuf`].
@@ -655,7 +693,7 @@ impl<P: AsRef<Utf8Path>> Extend<P> for Utf8PathBuf {
 /// ```
 // NB: Internal Path must only contain utf8 data
 #[repr(transparent)]
-pub struct Utf8Path(Path);
+pub struct Utf8Path(std::path::Path);
 
 impl Utf8Path {
     /// Directly wraps a string slice as a [`Utf8Path`] slice.
